@@ -1,11 +1,14 @@
 /**
  * ============================================================
- * DEMO ZERO-KNOWLEDGE PROOF - Web Demo Logic
+ * DEMO ZERO-KNOWLEDGE PROOF — Schnorr Protocol (Pure JS)
  * ============================================================
- * Sử dụng snarkjs chạy trực tiếp trong browser (WASM)
- * để sinh và xác minh ZK proof cho Poseidon hash.
+ * Không cần thư viện ngoài — dùng BigInt native của JavaScript.
  * 
- * Flow: Input preimage → Generate Witness → Prove → Verify
+ * Schnorr ZKP Protocol (Non-interactive, Fiat-Shamir):
+ *   1. Prover chọn random r, tính t = g^r mod p
+ *   2. Challenge c = SHA256(g || h || t) mod q
+ *   3. Response s = (r + c * x) mod q
+ *   4. Verify: g^s ≡ t * h^c (mod p)
  * ============================================================
  */
 
@@ -13,159 +16,205 @@
     'use strict';
 
     // ============================================================
-    // CẤU HÌNH
+    // THAM SỐ NHÓM — RFC 3526 Group 14 (2048-bit MODP)
     // ============================================================
-    
-    const CONFIG = {
-        // Đường dẫn tới các file build (sinh ra từ scripts/setup.sh)
-        wasmPath: 'build/hash_proof.wasm',
-        zkeyPath: 'build/hash_proof_final.zkey',
-        vkeyPath: 'build/verification_key.json',
+
+    const P = BigInt(
+        '0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1' +
+        '29024E088A67CC74020BBEA63B139B22514A08798E3404DD' +
+        'EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245' +
+        'E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED' +
+        'EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D' +
+        'C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F' +
+        '83655D23DCA3AD961C62F356208552BB9ED529077096966D' +
+        '670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B' +
+        'E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9' +
+        'DE2BCBF6955817183995497CEA956AE515D2261898FA0510' +
+        '15728E5A8AACAA68FFFFFFFFFFFFFFFF'
+    );
+
+    const Q = (P - 1n) / 2n;
+    const G = 2n;
+
+    // ============================================================
+    // CRYPTO UTILITIES
+    // ============================================================
+
+    /**
+     * Modular exponentiation: base^exp mod mod
+     * Sử dụng phương pháp square-and-multiply.
+     */
+    function modPow(base, exp, mod) {
+        let result = 1n;
+        base = ((base % mod) + mod) % mod;
+        while (exp > 0n) {
+            if (exp % 2n === 1n) {
+                result = (result * base) % mod;
+            }
+            exp = exp / 2n;
+            base = (base * base) % mod;
+        }
+        return result;
+    }
+
+    /**
+     * SHA-256 hash (Web Crypto API).
+     * Returns hex string.
+     */
+    async function sha256(message) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    /**
+     * Generate cryptographic random BigInt in range [1, max-1].
+     */
+    function randomBigInt(max) {
+        // Tính số bytes cần thiết
+        const hexLen = max.toString(16).length;
+        const byteLen = Math.ceil(hexLen / 2);
+        const arr = new Uint8Array(byteLen);
+
+        let r;
+        do {
+            crypto.getRandomValues(arr);
+            r = BigInt('0x' + Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join(''));
+            r = r % max;
+        } while (r === 0n);
+
+        return r;
+    }
+
+    // ============================================================
+    // SCHNORR ZKP PROTOCOL
+    // ============================================================
+
+    const SchnorrZKP = {
+        /**
+         * Sinh cặp khóa từ chuỗi bí mật.
+         * @param {string} secret - Chuỗi bí mật
+         * @returns {Promise<{x: BigInt, h: BigInt}>}
+         */
+        async keygen(secret) {
+            const xHash = await sha256(secret);
+            let x = BigInt('0x' + xHash) % Q;
+            if (x === 0n) x = 1n;
+            const h = modPow(G, x, P);
+            return { x, h };
+        },
+
+        /**
+         * Sinh ZK proof (non-interactive, Fiat-Shamir).
+         * @param {BigInt} x - Private key
+         * @param {BigInt} h - Public key = g^x mod p
+         * @returns {Promise<Object>} proof
+         */
+        async prove(x, h) {
+            // Bước 1: Random r
+            const r = randomBigInt(Q);
+
+            // Bước 2: Commitment t = g^r mod p
+            const t = modPow(G, r, P);
+
+            // Bước 3: Fiat-Shamir challenge
+            const challengeInput = `${G}||${h}||${t}`;
+            const cHash = await sha256(challengeInput);
+            const c = BigInt('0x' + cHash) % Q;
+
+            // Bước 4: Response s = (r + c*x) mod q
+            const s = ((r + c * x) % Q + Q) % Q;
+
+            return { t, s, c };
+        },
+
+        /**
+         * Xác minh ZK proof.
+         * @param {BigInt} h - Public key
+         * @param {Object} proof - { t, s, c }
+         * @returns {Promise<boolean>}
+         */
+        async verify(h, proof) {
+            const { t, s } = proof;
+
+            // Tái tạo challenge
+            const challengeInput = `${G}||${h}||${t}`;
+            const cHash = await sha256(challengeInput);
+            const c = BigInt('0x' + cHash) % Q;
+
+            // Xác minh: g^s ≡ t * h^c (mod p)
+            const lhs = modPow(G, s, P);
+            const rhs = (t * modPow(h, c, P)) % P;
+
+            return lhs === rhs;
+        },
     };
 
     // ============================================================
-    // STATE
+    // UI STATE
     // ============================================================
-    
+
     let state = {
-        isReady: false,
-        isProving: false,
-        isVerifying: false,
-        vkey: null,          // Verification key (loaded once)
-        currentProof: null,  // Current proof object
-        publicSignals: null, // Current public signals
+        currentProof: null,
+        publicKey: null,
         proveTime: 0,
         verifyTime: 0,
     };
 
-    // ============================================================
-    // DOM ELEMENTS
-    // ============================================================
-    
     const $ = (id) => document.getElementById(id);
 
-    const elements = {
-        preimageInput: $('preimageInput'),
-        btnProve: $('btnProve'),
-        btnVerify: $('btnVerify'),
-        btnReset: $('btnReset'),
-        statusDot: document.querySelector('.status-dot'),
-        statusText: $('statusText'),
-        sectionProof: $('sectionProof'),
-        sectionResult: $('sectionResult'),
-        hashOutput: $('hashOutput'),
-        proofOutput: $('proofOutput'),
-        verifyResult: $('verifyResult'),
-        metricProveTime: $('metricProveTime'),
-        metricVerifyTime: $('metricVerifyTime'),
-        metricProofSize: $('metricProofSize'),
-        metricRatio: $('metricRatio'),
-        loadingOverlay: $('loadingOverlay'),
-        loadingText: $('loadingText'),
-    };
-
     // ============================================================
-    // INITIALIZATION
+    // UI ACTIONS
     // ============================================================
-    
-    async function init() {
-        try {
-            showLoading('Đang tải verification key...');
-            
-            // Load verification key
-            const response = await fetch(CONFIG.vkeyPath);
-            if (!response.ok) {
-                throw new Error(
-                    'Không tìm thấy verification_key.json. ' +
-                    'Vui lòng chạy scripts/setup.sh trước để sinh các file build.'
-                );
-            }
-            state.vkey = await response.json();
 
-            // Kiểm tra WASM file tồn tại
-            const wasmCheck = await fetch(CONFIG.wasmPath, { method: 'HEAD' });
-            if (!wasmCheck.ok) {
-                throw new Error(
-                    'Không tìm thấy hash_proof.wasm. ' +
-                    'Vui lòng chạy scripts/setup.sh trước.'
-                );
-            }
-
-            // Kiểm tra zkey file tồn tại
-            const zkeyCheck = await fetch(CONFIG.zkeyPath, { method: 'HEAD' });
-            if (!zkeyCheck.ok) {
-                throw new Error(
-                    'Không tìm thấy hash_proof_final.zkey. ' +
-                    'Vui lòng chạy scripts/setup.sh trước.'
-                );
-            }
-
-            // Sẵn sàng!
-            state.isReady = true;
-            setStatus('ready', 'Sẵn sàng — Nhập giá trị bí mật và nhấn Generate Proof');
-            elements.btnProve.disabled = false;
-            hideLoading();
-
-        } catch (error) {
-            console.error('Init error:', error);
-            setStatus('error', `Lỗi: ${error.message}`);
-            hideLoading();
-            
-            // Hiển thị hướng dẫn
-            elements.preimageInput.disabled = true;
-            elements.preimageInput.placeholder = 'Cần chạy setup.sh trước...';
+    async function handleProve() {
+        const secret = $('secretInput').value.trim();
+        if (!secret) {
+            alert('Vui lòng nhập giá trị bí mật');
+            return;
         }
-    }
 
-    // ============================================================
-    // CORE ZKP FUNCTIONS
-    // ============================================================
-    
-    /**
-     * Sinh Groth16 proof
-     * @param {string} preimage - Giá trị bí mật x
-     */
-    async function generateProof(preimage) {
-        if (!state.isReady || state.isProving) return;
-
-        state.isProving = true;
-        elements.btnProve.disabled = true;
-        elements.btnProve.innerHTML = '<span class="spinner"></span> Đang sinh proof...';
+        const btn = $('btnProve');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Đang sinh proof...';
 
         try {
-            // Chuẩn bị input
-            const input = { preimage: preimage };
-            
-            console.log('[ZKP] Bắt đầu sinh proof với input:', { preimage: '***' });
-            console.log('[ZKP] (Giá trị preimage được ẩn vì tính zero-knowledge)');
+            // Keygen
+            const { x, h } = await SchnorrZKP.keygen(secret);
+            state.publicKey = h;
 
-            // === SINH PROOF ===
+            // Prove
             const proveStart = performance.now();
-            
-            const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-                input,
-                CONFIG.wasmPath,
-                CONFIG.zkeyPath
-            );
-            
-            const proveEnd = performance.now();
-            state.proveTime = proveEnd - proveStart;
+            const proof = await SchnorrZKP.prove(x, h);
+            state.proveTime = performance.now() - proveStart;
             state.currentProof = proof;
-            state.publicSignals = publicSignals;
 
-            console.log('[ZKP] Proof sinh thành công trong', state.proveTime.toFixed(2), 'ms');
-            console.log('[ZKP] Public signals (hash):', publicSignals);
+            // Display
+            const hHex = h.toString(16);
+            $('publicKeyOutput').textContent = hHex.substring(0, 80) + '...';
 
-            // Hiển thị kết quả
-            displayProofOutput(proof, publicSignals);
+            const proofDisplay = {
+                commitment_t: proof.t.toString(16).substring(0, 60) + '...',
+                response_s: proof.s.toString(16).substring(0, 60) + '...',
+                challenge_c: proof.c.toString(16).substring(0, 60) + '...',
+                protocol: 'Schnorr (Fiat-Shamir)',
+                group: 'RFC 3526 Group 14 (2048-bit)',
+            };
+            $('proofOutput').textContent = JSON.stringify(proofDisplay, null, 2);
 
-        } catch (error) {
-            console.error('[ZKP] Lỗi khi sinh proof:', error);
-            setStatus('error', `Lỗi sinh proof: ${error.message}`);
+            $('sectionProof').style.display = 'block';
+            $('sectionResult').style.display = 'none';
+            $('sectionMath').style.display = 'none';
+            $('sectionProof').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        } catch (err) {
+            console.error(err);
+            alert('Lỗi: ' + err.message);
         } finally {
-            state.isProving = false;
-            elements.btnProve.disabled = false;
-            elements.btnProve.innerHTML = `
+            btn.disabled = false;
+            btn.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
                 </svg>
@@ -174,202 +223,127 @@
         }
     }
 
-    /**
-     * Xác minh proof
-     */
-    async function verifyProof() {
-        if (!state.currentProof || state.isVerifying) return;
+    async function handleVerify(useFakeProof = false) {
+        if (!state.currentProof || !state.publicKey) return;
 
-        state.isVerifying = true;
-        elements.btnVerify.disabled = true;
-        elements.btnVerify.innerHTML = '<span class="spinner"></span> Đang xác minh...';
-
-        try {
-            console.log('[ZKP] Bắt đầu xác minh proof...');
-
-            // === VERIFY ===
-            const verifyStart = performance.now();
-            
-            const isValid = await snarkjs.groth16.verify(
-                state.vkey,
-                state.publicSignals,
-                state.currentProof
-            );
-            
-            const verifyEnd = performance.now();
-            state.verifyTime = verifyEnd - verifyStart;
-
-            console.log('[ZKP] Kết quả:', isValid ? 'HỢP LỆ ✅' : 'KHÔNG HỢP LỆ ❌');
-            console.log('[ZKP] Thời gian verify:', state.verifyTime.toFixed(2), 'ms');
-
-            // Hiển thị kết quả
-            displayVerifyResult(isValid);
-
-        } catch (error) {
-            console.error('[ZKP] Lỗi khi xác minh:', error);
-            setStatus('error', `Lỗi verify: ${error.message}`);
-        } finally {
-            state.isVerifying = false;
-            elements.btnVerify.disabled = false;
-            elements.btnVerify.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>
-                </svg>
-                Verify Proof
-            `;
+        let proof = state.currentProof;
+        if (useFakeProof) {
+            // Tạo proof giả với random values
+            proof = {
+                t: randomBigInt(P),
+                s: randomBigInt(Q),
+                c: state.currentProof.c,
+            };
         }
-    }
 
-    // ============================================================
-    // UI DISPLAY FUNCTIONS
-    // ============================================================
-    
-    function displayProofOutput(proof, publicSignals) {
-        // Hiển thị hash output
-        const hashValue = publicSignals[0];
-        elements.hashOutput.textContent = hashValue;
+        const verifyStart = performance.now();
+        const isValid = await SchnorrZKP.verify(state.publicKey, proof);
+        state.verifyTime = performance.now() - verifyStart;
 
-        // Hiển thị proof (formatted)
-        const proofDisplay = {
-            protocol: proof.protocol,
-            curve: proof.curve,
-            pi_a: [
-                proof.pi_a[0].substring(0, 30) + '...',
-                proof.pi_a[1].substring(0, 30) + '...',
-            ],
-            pi_b: '[[...], [...]]',
-            pi_c: [
-                proof.pi_c[0].substring(0, 30) + '...',
-                proof.pi_c[1].substring(0, 30) + '...',
-            ],
-        };
-        elements.proofOutput.textContent = JSON.stringify(proofDisplay, null, 2);
-
-        // Show proof section
-        elements.sectionProof.style.display = 'block';
-        elements.sectionProof.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        setStatus('ready', `Proof sinh thành công (${state.proveTime.toFixed(0)}ms) — Nhấn Verify để xác minh`);
-    }
-
-    function displayVerifyResult(isValid) {
         // Result badge
+        const resultDiv = $('verifyResult');
         if (isValid) {
-            elements.verifyResult.innerHTML = `
+            resultDiv.innerHTML = `
                 <div class="result result--valid">
                     <div class="result__icon">✅</div>
                     <div class="result__text">
                         <h3>PROOF HỢP LỆ!</h3>
-                        <p>Prover đã chứng minh thành công rằng họ biết giá trị x sao cho Poseidon(x) = y, 
+                        <p>Prover đã chứng minh thành công rằng họ biết x sao cho g<sup>x</sup> ≡ h (mod p),
                         mà verifier không biết x là gì.</p>
                     </div>
                 </div>
             `;
         } else {
-            elements.verifyResult.innerHTML = `
+            resultDiv.innerHTML = `
                 <div class="result result--invalid">
                     <div class="result__icon">❌</div>
                     <div class="result__text">
                         <h3>PROOF KHÔNG HỢP LỆ!</h3>
-                        <p>Proof không hợp lệ — prover không thể chứng minh họ biết preimage.</p>
+                        <p>${useFakeProof 
+                            ? 'Proof giả bị từ chối! → Tính SOUNDNESS: không thể tạo proof hợp lệ nếu không biết x.'
+                            : 'Proof không hợp lệ — prover không thể chứng minh.'
+                        }</p>
                     </div>
                 </div>
             `;
         }
 
         // Metrics
-        const proofSizeBytes = new TextEncoder().encode(
-            JSON.stringify(state.currentProof)
-        ).length;
+        const proofJson = JSON.stringify({
+            t: (useFakeProof ? proof.t : state.currentProof.t).toString(),
+            s: (useFakeProof ? proof.s : state.currentProof.s).toString(),
+            c: (useFakeProof ? proof.c : state.currentProof.c).toString(),
+        });
+        const proofSize = new TextEncoder().encode(proofJson).length;
 
-        elements.metricProveTime.textContent = state.proveTime.toFixed(1);
-        elements.metricVerifyTime.textContent = state.verifyTime.toFixed(1);
-        elements.metricProofSize.textContent = proofSizeBytes;
-        elements.metricRatio.textContent = (state.proveTime / state.verifyTime).toFixed(1);
+        $('metricProveTime').textContent = state.proveTime.toFixed(1);
+        $('metricVerifyTime').textContent = state.verifyTime.toFixed(1);
+        $('metricProofSize').textContent = proofSize;
+        $('metricRatio').textContent = (state.proveTime / Math.max(state.verifyTime, 0.1)).toFixed(1);
 
-        // Show result section
-        elements.sectionResult.style.display = 'block';
-        elements.sectionResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        $('sectionResult').style.display = 'block';
 
-        setStatus(
-            isValid ? 'ready' : 'error',
-            isValid ? 'Xác minh thành công! ✅' : 'Xác minh thất bại ❌'
-        );
+        // Show math details
+        showMathDetails(useFakeProof ? proof : state.currentProof, isValid);
+
+        $('sectionResult').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-    // ============================================================
-    // UI HELPERS
-    // ============================================================
-    
-    function setStatus(type, text) {
-        elements.statusDot.className = `status-dot status-dot--${type}`;
-        elements.statusText.textContent = text;
+    function showMathDetails(proof, isValid) {
+        const lhs = `g^s mod p`;
+        const rhs = `t · h^c mod p`;
+
+        $('mathDetails').innerHTML = `
+<strong>Schnorr ZKP — Verification Math</strong>
+
+<span style="color: #9494a8;">// Tham số nhóm (RFC 3526 Group 14)</span>
+<span style="color: #f59e0b;">p</span> = FFFFFFFF...FFFFFFFF <span style="color: #9494a8;">(2048-bit safe prime)</span>
+<span style="color: #f59e0b;">g</span> = 2 <span style="color: #9494a8;">(generator)</span>
+<span style="color: #f59e0b;">q</span> = (p - 1) / 2 <span style="color: #9494a8;">(group order)</span>
+
+<span style="color: #9494a8;">// Proof components</span>
+<span style="color: #a78bfa;">t</span> (commitment) = ${proof.t.toString(16).substring(0, 40)}...
+<span style="color: #a78bfa;">s</span> (response)   = ${proof.s.toString(16).substring(0, 40)}...
+<span style="color: #a78bfa;">c</span> (challenge)  = SHA256(g || h || t) mod q
+
+<span style="color: #9494a8;">// Verification equation</span>
+<span style="color: #06b6d4;">LHS</span> = g^s mod p
+<span style="color: #06b6d4;">RHS</span> = t · h^c mod p
+
+<span style="color: ${isValid ? '#10b981' : '#ef4444'}; font-weight: bold;">LHS ${isValid ? '==' : '!='} RHS → ${isValid ? '✅ VALID' : '❌ INVALID'}</span>
+
+<span style="color: #9494a8;">// Tại sao verification hoạt động?</span>
+<span style="color: #9494a8;">// Nếu proof hợp lệ: s = r + c·x (mod q)</span>
+<span style="color: #9494a8;">//   g^s = g^(r + c·x) = g^r · g^(c·x) = t · (g^x)^c = t · h^c</span>
+<span style="color: #9494a8;">// → LHS = RHS ✅</span>
+        `.trim();
+
+        $('sectionMath').style.display = 'block';
     }
 
-    function showLoading(text) {
-        elements.loadingText.textContent = text;
-        elements.loadingOverlay.classList.add('active');
-    }
-
-    function hideLoading() {
-        elements.loadingOverlay.classList.remove('active');
-    }
-
-    function resetDemo() {
+    function handleReset() {
         state.currentProof = null;
-        state.publicSignals = null;
+        state.publicKey = null;
         state.proveTime = 0;
         state.verifyTime = 0;
 
-        elements.sectionProof.style.display = 'none';
-        elements.sectionResult.style.display = 'none';
-        elements.hashOutput.textContent = '—';
-        elements.proofOutput.textContent = '—';
-        elements.verifyResult.innerHTML = '';
-
-        setStatus('ready', 'Sẵn sàng — Nhập giá trị bí mật và nhấn Generate Proof');
-        elements.preimageInput.focus();
+        $('sectionProof').style.display = 'none';
+        $('sectionResult').style.display = 'none';
+        $('sectionMath').style.display = 'none';
+        $('secretInput').focus();
     }
 
     // ============================================================
     // EVENT LISTENERS
     // ============================================================
-    
-    elements.btnProve.addEventListener('click', () => {
-        const preimage = elements.preimageInput.value.trim();
-        if (!preimage) {
-            setStatus('error', 'Vui lòng nhập giá trị bí mật');
-            elements.preimageInput.focus();
-            return;
-        }
-        
-        // Kiểm tra input hợp lệ (phải là số)
-        if (!/^\d+$/.test(preimage)) {
-            setStatus('error', 'Giá trị phải là số nguyên dương');
-            elements.preimageInput.focus();
-            return;
-        }
 
-        // Reset previous results
-        elements.sectionResult.style.display = 'none';
-        
-        generateProof(preimage);
+    $('btnProve').addEventListener('click', handleProve);
+    $('btnVerify').addEventListener('click', () => handleVerify(false));
+    $('btnFakeVerify').addEventListener('click', () => handleVerify(true));
+    $('btnReset').addEventListener('click', handleReset);
+
+    $('secretInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleProve();
     });
-
-    elements.btnVerify.addEventListener('click', verifyProof);
-    elements.btnReset.addEventListener('click', resetDemo);
-
-    // Enter key to prove
-    elements.preimageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && state.isReady && !state.isProving) {
-            elements.btnProve.click();
-        }
-    });
-
-    // ============================================================
-    // START
-    // ============================================================
-    
-    init();
 
 })();

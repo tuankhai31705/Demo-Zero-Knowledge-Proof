@@ -3,19 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Demo Zero-Knowledge Proof - Chứng minh biết preimage của hash mà không tiết lộ giá trị bí mật. Sử dụng zk-SNARKs (Groth16) với Poseidon hash.">
-    <title>Demo Zero-Knowledge Proof | zk-SNARKs</title>
+    <meta name="description" content="Demo Zero-Knowledge Proof - Chứng minh biết giá trị bí mật mà không tiết lộ. Schnorr ZKP trực tiếp trong browser.">
+    <title>Demo Zero-Knowledge Proof | Schnorr ZKP</title>
     <link rel="stylesheet" href="index.css">
 </head>
 <body>
     <!-- Animated background -->
     <div class="bg-pattern"></div>
-
-    <!-- Loading overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="loading-overlay__spinner"></div>
-        <div class="loading-overlay__text" id="loadingText">Đang tải circuit...</div>
-    </div>
 
     <div class="container">
         <!-- ==================== HEADER ==================== -->
@@ -28,8 +22,8 @@
             </div>
             <h1 class="header__title">Chứng minh không tiết lộ</h1>
             <p class="header__subtitle">
-                Chứng minh <code>tôi biết x</code> sao cho <code>hash(x) = y</code> 
-                mà <strong>không tiết lộ</strong> giá trị x — sử dụng zk-SNARKs (Groth16) + Poseidon Hash
+                Chứng minh <code>tôi biết x</code> sao cho <code>g<sup>x</sup> ≡ h (mod p)</code>
+                mà <strong>không tiết lộ</strong> giá trị x — sử dụng Schnorr ZKP Protocol
             </p>
         </header>
 
@@ -45,17 +39,17 @@
                 <div class="flow-step">
                     <div class="flow-step__icon">⚡</div>
                     <div class="flow-step__name">Sinh Proof</div>
-                    <div class="flow-step__desc">Circuit tính hash(x) = y và tạo ZK proof</div>
+                    <div class="flow-step__desc">Tính h = g<sup>x</sup> mod p và tạo ZK proof (t, s)</div>
                 </div>
                 <div class="flow-step">
                     <div class="flow-step__icon">📤</div>
                     <div class="flow-step__name">Gửi Proof</div>
-                    <div class="flow-step__desc">Gửi proof + hash y (KHÔNG gửi x)</div>
+                    <div class="flow-step__desc">Gửi proof + h (KHÔNG gửi x)</div>
                 </div>
                 <div class="flow-step">
                     <div class="flow-step__icon">✅</div>
                     <div class="flow-step__name">Verify</div>
-                    <div class="flow-step__desc">Verifier xác minh proof mà không biết x</div>
+                    <div class="flow-step__desc">Kiểm tra g<sup>s</sup> ≡ t·h<sup>c</sup> (mod p)</div>
                 </div>
             </div>
         </div>
@@ -64,34 +58,30 @@
         <section class="card animate-in" id="sectionInput">
             <div class="card__header">
                 <div class="card__step card__step--1">1</div>
-                <h2 class="card__title">Nhập giá trị bí mật (Preimage)</h2>
+                <h2 class="card__title">Nhập giá trị bí mật (Private Key)</h2>
             </div>
             <p class="card__description">
-                Nhập giá trị bí mật <strong>x</strong> mà bạn muốn chứng minh biết. 
-                Giá trị này sẽ <strong>KHÔNG BAO GIỜ</strong> được tiết lộ cho verifier.
-                Circuit sẽ tính <code>y = Poseidon(x)</code> và tạo proof chứng minh bạn biết x.
+                Nhập giá trị bí mật <strong>x</strong> mà bạn muốn chứng minh biết.
+                Giá trị này sẽ <strong>KHÔNG BAO GIỜ</strong> được gửi cho verifier.
+                Chỉ public key <code>h = g<sup>x</sup> mod p</code> được tiết lộ.
             </p>
             <div class="input-group">
-                <label for="preimageInput">Giá trị bí mật (số nguyên)</label>
+                <label for="secretInput">Giá trị bí mật (chuỗi bất kỳ)</label>
                 <div class="input-wrapper">
-                    <input 
-                        type="text" 
-                        id="preimageInput" 
-                        class="input-field" 
-                        placeholder="Ví dụ: 12345"
+                    <input
+                        type="text"
+                        id="secretInput"
+                        class="input-field"
+                        placeholder="Ví dụ: my_secret_12345"
                         value="12345"
                     >
-                    <button class="btn btn--primary" id="btnProve" disabled>
+                    <button class="btn btn--primary" id="btnProve">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
                         </svg>
                         Generate Proof
                     </button>
                 </div>
-            </div>
-            <div id="statusBar" style="margin-top: 0.75rem;">
-                <span class="status-dot status-dot--loading"></span>
-                <span style="font-size: 0.85rem; color: var(--text-muted);" id="statusText">Đang tải snarkjs...</span>
             </div>
         </section>
 
@@ -102,34 +92,41 @@
                 <h2 class="card__title">Proof đã sinh</h2>
             </div>
             <p class="card__description">
-                ZK proof đã được tạo. Proof này chứng minh bạn biết preimage mà 
+                ZK proof đã được tạo. Proof này chứng minh bạn biết x mà 
                 <strong>không chứa bất kỳ thông tin nào về giá trị x</strong>.
+                Verifier chỉ nhận được (h, t, s).
             </p>
 
-            <!-- Public Hash Output -->
+            <!-- Public Key -->
             <div class="output-panel">
                 <div class="output-panel__label">
-                    🔓 Public Output — Hash y = Poseidon(x)
+                    🔓 Public Key — h = g<sup>x</sup> mod p
                 </div>
-                <div class="output-panel__content" id="hashOutput">—</div>
+                <div class="output-panel__content" id="publicKeyOutput">—</div>
             </div>
 
-            <!-- Proof JSON -->
+            <!-- Proof -->
             <div class="output-panel" style="margin-top: 1rem;">
                 <div class="output-panel__label">
-                    🔐 ZK Proof (Groth16)
+                    🔐 ZK Proof (Schnorr, Fiat-Shamir)
                 </div>
                 <div class="output-panel__content" id="proofOutput">—</div>
             </div>
 
             <!-- Verify Button -->
-            <div style="margin-top: 1.25rem; display: flex; gap: 0.75rem;">
+            <div style="margin-top: 1.25rem; display: flex; gap: 0.75rem; flex-wrap: wrap;">
                 <button class="btn btn--success" id="btnVerify">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M9 12l2 2 4-4"/>
                         <circle cx="12" cy="12" r="10"/>
                     </svg>
                     Verify Proof
+                </button>
+                <button class="btn btn--outline" id="btnFakeVerify">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                    Thử Proof Giả
                 </button>
                 <button class="btn btn--outline" id="btnReset">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -175,21 +172,26 @@
             </div>
         </section>
 
+        <!-- ==================== MATH EXPLANATION ==================== -->
+        <div class="card animate-in" id="sectionMath" style="display: none;">
+            <div class="card__header">
+                <div class="card__step" style="background: linear-gradient(135deg, #f59e0b, #f97316);">📐</div>
+                <h2 class="card__title">Chi tiết toán học</h2>
+            </div>
+            <div id="mathDetails" class="output-panel__content" style="max-height: 400px; font-size: 0.85rem; line-height: 2;"></div>
+        </div>
+
         <!-- ==================== FOOTER ==================== -->
         <footer class="footer">
             <p>
                 Demo Zero-Knowledge Proof — Môn Cơ sở An toàn Thông tin (KMA)
             </p>
             <p style="margin-top: 0.4rem;">
-                Powered by <a href="https://github.com/iden3/snarkjs" target="_blank">snarkjs</a> 
-                + <a href="https://docs.circom.io/" target="_blank">Circom</a> 
-                + <a href="https://www.poseidon-hash.info/" target="_blank">Poseidon Hash</a>
+                Schnorr ZKP Protocol · Fiat-Shamir Heuristic · Pure JavaScript (no dependencies)
             </p>
         </footer>
     </div>
 
-    <!-- SnarkJS from CDN -->
-    <script src="https://unpkg.com/snarkjs@0.7.5/build/snarkjs.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,2 @@
+# Optional dependencies (benchmark charts)
+matplotlib>=3.5.0
