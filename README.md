@@ -1,9 +1,3 @@
-# 🔐 Demo Zero-Knowledge Proof
-
-> **Đề tài**: Tìm hiểu Zerocash — Môn Cơ sở An toàn Thông tin (KMA)
-
-Demo thực nghiệm **Zero-Knowledge Proof** (ZKP): Chứng minh *"tôi biết giá trị bí mật x"* mà **không tiết lộ x**.
-
 ## ⚡ Quick Start
 
 ```bash
@@ -19,8 +13,6 @@ python -m http.server 8000
 # → Mở http://localhost:8000
 ```
 
-> **Không cần cài thêm gì** — chỉ dùng Python standard library!
-
 ## 📋 Tổng quan
 
 | Thành phần | Mô tả | Công nghệ |
@@ -30,35 +22,6 @@ python -m http.server 8000
 | **Benchmark** | So sánh 2 phương pháp (20 lần) | Python + matplotlib |
 | **Web Demo** | Giao diện trực quan trong browser | HTML/CSS/JS (pure) |
 
-## 🔍 Zero-Knowledge Proof là gì?
-
-Zero-Knowledge Proof cho phép **Prover** chứng minh với **Verifier** rằng một mệnh đề là đúng, mà **không tiết lộ bất kỳ thông tin nào** ngoài tính đúng đắn của mệnh đề.
-
-**3 tính chất ZKP:**
-1. **Completeness** — Nếu prover biết secret, proof luôn hợp lệ
-2. **Soundness** — Nếu prover KHÔNG biết secret, proof gần như chắc chắn thất bại
-3. **Zero-Knowledge** — Verifier không học được gì về secret
-
-```
-Prover                              Verifier
-  │                                    │
-  │  biết x (secret)                   │
-  │  tính h = g^x mod p (public key)   │
-  │  chọn random r                     │
-  │  tính t = g^r mod p (commitment)   │
-  │  tính c = SHA256(g||h||t) mod q    │
-  │  tính s = (r + c·x) mod q         │
-  │                                    │
-  │  ──── gửi (h, t, s) ──────────►   │
-  │  (KHÔNG gửi x)                    │
-  │                                    │
-  │                  verify:           │
-  │                  g^s ≡ t·h^c ?     │
-  │                  → ✅ OK!          │
-  │                                    │
-  │  Verifier biết: h (public key)     │
-  │  Verifier KHÔNG biết: x (secret)   │
-```
 
 ## 🛠️ Yêu cầu hệ thống
 
@@ -166,28 +129,8 @@ Demo-Zero-Knowledge-Proof/
 | Cơ sở toán | Discrete Log Problem | Hash collision resistance |
 | Non-interactive | ✅ (Fiat-Shamir) | ✅ (Fiat-Shamir) |
 
-## 💡 Liên hệ với Zerocash/Zcash
 
-Trong **Zerocash/Zcash**, ZKP được dùng để:
-- Ẩn **người gửi**, **người nhận**, và **số tiền** giao dịch
-- Miner verify giao dịch hợp lệ mà không biết chi tiết
 
-Zerocash dùng **zk-SNARKs** (Groth16) — proof chỉ ~200 bytes, verify trong milliseconds, nhưng cần trusted setup phức tạp.
-
-| | Demo này | Zerocash |
-|---|---------|----------|
-| Protocol | Schnorr / Sigma | zk-SNARKs (Groth16) |
-| Proof size | ~1 KB | ~200 bytes |
-| Trusted setup | Không cần | Cần (Powers of Tau) |
-| Bài toán | Discrete log / Hash | Arithmetic circuit |
-| Công cụ | Python thuần | Circom + snarkjs |
-
-## 📚 Tài liệu tham khảo
-
-1. **Zerocash Paper**: [Zerocash: Decentralized Anonymous Payments from Bitcoin](https://eprint.iacr.org/2014/349.pdf)
-2. **Schnorr Protocol**: [Wikipedia - Schnorr signature](https://en.wikipedia.org/wiki/Schnorr_signature)
-3. **Fiat-Shamir**: [Wikipedia - Fiat-Shamir heuristic](https://en.wikipedia.org/wiki/Fiat%E2%80%93Shamir_heuristic)
-4. **RFC 3526**: [MODP Diffie-Hellman Groups](https://www.rfc-editor.org/rfc/rfc3526)
 
 ## 📄 License
 
