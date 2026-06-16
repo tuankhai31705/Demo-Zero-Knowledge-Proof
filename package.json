@@ -1,0 +1,16 @@
+{
+  "name": "demo-zero-knowledge-proof",
+  "version": "1.0.0",
+  "description": "Demo Zero-Knowledge Proof - Chứng minh biết preimage của hash mà không tiết lộ giá trị",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "prove": "bash scripts/prove_and_verify.sh",
+    "benchmark": "python scripts/benchmark.py"
+  },
+  "dependencies": {
+    "circomlib": "^2.0.5",
+    "snarkjs": "^0.7.5"
+  },
+  "keywords": ["zero-knowledge-proof", "zkp", "snarkjs", "circom", "poseidon"],
+  "license": "MIT"
+}

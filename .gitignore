@@ -1,0 +1,22 @@
+node_modules/
+build/
+web-demo/build/
+
+# Trusted setup artifacts
+*.ptau
+*.zkey
+*.wtns
+*.r1cs
+*.sym
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmark output
+benchmark_results.png

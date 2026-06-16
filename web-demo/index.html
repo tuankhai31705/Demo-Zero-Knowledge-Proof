@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Demo Zero-Knowledge Proof - Chứng minh biết preimage của hash mà không tiết lộ giá trị bí mật. Sử dụng zk-SNARKs (Groth16) với Poseidon hash.">
+    <title>Demo Zero-Knowledge Proof | zk-SNARKs</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <!-- Animated background -->
+    <div class="bg-pattern"></div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-overlay__spinner"></div>
+        <div class="loading-overlay__text" id="loadingText">Đang tải circuit...</div>
+    </div>
+
+    <div class="container">
+        <!-- ==================== HEADER ==================== -->
+        <header class="header">
+            <div class="header__badge">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                Zero-Knowledge Proof Demo
+            </div>
+            <h1 class="header__title">Chứng minh không tiết lộ</h1>
+            <p class="header__subtitle">
+                Chứng minh <code>tôi biết x</code> sao cho <code>hash(x) = y</code> 
+                mà <strong>không tiết lộ</strong> giá trị x — sử dụng zk-SNARKs (Groth16) + Poseidon Hash
+            </p>
+        </header>
+
+        <!-- ==================== HOW IT WORKS ==================== -->
+        <div class="how-it-works card animate-in">
+            <h2 class="how-it-works__title">Quy trình hoạt động</h2>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step__icon">🔑</div>
+                    <div class="flow-step__name">Input bí mật</div>
+                    <div class="flow-step__desc">Prover nhập giá trị x (chỉ prover biết)</div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step__icon">⚡</div>
+                    <div class="flow-step__name">Sinh Proof</div>
+                    <div class="flow-step__desc">Circuit tính hash(x) = y và tạo ZK proof</div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step__icon">📤</div>
+                    <div class="flow-step__name">Gửi Proof</div>
+                    <div class="flow-step__desc">Gửi proof + hash y (KHÔNG gửi x)</div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step__icon">✅</div>
+                    <div class="flow-step__name">Verify</div>
+                    <div class="flow-step__desc">Verifier xác minh proof mà không biết x</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== STEP 1: INPUT ==================== -->
+        <section class="card animate-in" id="sectionInput">
+            <div class="card__header">
+                <div class="card__step card__step--1">1</div>
+                <h2 class="card__title">Nhập giá trị bí mật (Preimage)</h2>
+            </div>
+            <p class="card__description">
+                Nhập giá trị bí mật <strong>x</strong> mà bạn muốn chứng minh biết. 
+                Giá trị này sẽ <strong>KHÔNG BAO GIỜ</strong> được tiết lộ cho verifier.
+                Circuit sẽ tính <code>y = Poseidon(x)</code> và tạo proof chứng minh bạn biết x.
+            </p>
+            <div class="input-group">
+                <label for="preimageInput">Giá trị bí mật (số nguyên)</label>
+                <div class="input-wrapper">
+                    <input 
+                        type="text" 
+                        id="preimageInput" 
+                        class="input-field" 
+                        placeholder="Ví dụ: 12345"
+                        value="12345"
+                    >
+                    <button class="btn btn--primary" id="btnProve" disabled>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                        </svg>
+                        Generate Proof
+                    </button>
+                </div>
+            </div>
+            <div id="statusBar" style="margin-top: 0.75rem;">
+                <span class="status-dot status-dot--loading"></span>
+                <span style="font-size: 0.85rem; color: var(--text-muted);" id="statusText">Đang tải snarkjs...</span>
+            </div>
+        </section>
+
+        <!-- ==================== STEP 2: PROOF OUTPUT ==================== -->
+        <section class="card animate-in" id="sectionProof" style="display: none;">
+            <div class="card__header">
+                <div class="card__step card__step--2">2</div>
+                <h2 class="card__title">Proof đã sinh</h2>
+            </div>
+            <p class="card__description">
+                ZK proof đã được tạo. Proof này chứng minh bạn biết preimage mà 
+                <strong>không chứa bất kỳ thông tin nào về giá trị x</strong>.
+            </p>
+
+            <!-- Public Hash Output -->
+            <div class="output-panel">
+                <div class="output-panel__label">
+                    🔓 Public Output — Hash y = Poseidon(x)
+                </div>
+                <div class="output-panel__content" id="hashOutput">—</div>
+            </div>
+
+            <!-- Proof JSON -->
+            <div class="output-panel" style="margin-top: 1rem;">
+                <div class="output-panel__label">
+                    🔐 ZK Proof (Groth16)
+                </div>
+                <div class="output-panel__content" id="proofOutput">—</div>
+            </div>
+
+            <!-- Verify Button -->
+            <div style="margin-top: 1.25rem; display: flex; gap: 0.75rem;">
+                <button class="btn btn--success" id="btnVerify">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 12l2 2 4-4"/>
+                        <circle cx="12" cy="12" r="10"/>
+                    </svg>
+                    Verify Proof
+                </button>
+                <button class="btn btn--outline" id="btnReset">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                    </svg>
+                    Làm lại
+                </button>
+            </div>
+        </section>
+
+        <!-- ==================== STEP 3: VERIFICATION RESULT ==================== -->
+        <section class="card animate-in" id="sectionResult" style="display: none;">
+            <div class="card__header">
+                <div class="card__step card__step--3">3</div>
+                <h2 class="card__title">Kết quả xác minh</h2>
+            </div>
+
+            <!-- Result badge -->
+            <div id="verifyResult"></div>
+
+            <!-- Metrics -->
+            <div class="metrics" id="metricsGrid">
+                <div class="metric-card">
+                    <div class="metric-card__label">Thời gian Prove</div>
+                    <div class="metric-card__value" id="metricProveTime">—</div>
+                    <div class="metric-card__unit">milliseconds</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card__label">Thời gian Verify</div>
+                    <div class="metric-card__value" id="metricVerifyTime">—</div>
+                    <div class="metric-card__unit">milliseconds</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card__label">Kích thước Proof</div>
+                    <div class="metric-card__value" id="metricProofSize">—</div>
+                    <div class="metric-card__unit">bytes</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card__label">Tỷ lệ Prove/Verify</div>
+                    <div class="metric-card__value" id="metricRatio">—</div>
+                    <div class="metric-card__unit">lần</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== FOOTER ==================== -->
+        <footer class="footer">
+            <p>
+                Demo Zero-Knowledge Proof — Môn Cơ sở An toàn Thông tin (KMA)
+            </p>
+            <p style="margin-top: 0.4rem;">
+                Powered by <a href="https://github.com/iden3/snarkjs" target="_blank">snarkjs</a> 
+                + <a href="https://docs.circom.io/" target="_blank">Circom</a> 
+                + <a href="https://www.poseidon-hash.info/" target="_blank">Poseidon Hash</a>
+            </p>
+        </footer>
+    </div>
+
+    <!-- SnarkJS from CDN -->
+    <script src="https://unpkg.com/snarkjs@0.7.5/build/snarkjs.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
